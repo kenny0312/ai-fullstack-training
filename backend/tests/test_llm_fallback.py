@@ -190,7 +190,9 @@ class LlmFallbackApiTests(unittest.TestCase):
         passed = self.review(PASS_CONTENT)
         self.assertEqual({r["final_status"] for r in passed["results"]}, {"pass"})
         sources = {r["rule_id"]: r["source"] for r in passed["results"]}
-        self.assertEqual(sources, {"R001": "llm", "R002": "llm", "R003": "rule", "R004": "rule"})
+        # 只检查内置的四条规则，按 README 新增规则后测试仍然成立。
+        self.assertEqual({k: sources[k] for k in ("R001", "R002", "R003", "R004")},
+                         {"R001": "llm", "R002": "llm", "R003": "rule", "R004": "rule"})
 
         risky = self.review(RISK_CONTENT)
         self.assertEqual({r["rule_id"] for r in risky["results"] if r["final_status"] == "risk"}, {"R001", "R002"})

@@ -1,0 +1,3 @@
+# 样例合同和 Dockerfile 固定使用 LF：Windows 上开启 core.autocrlf 时，检出的文件也与测试和容器里的一致。
+samples/*.txt text eol=lf
+Dockerfile text eol=lf

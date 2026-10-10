@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import html
 import json
 import logging
 import re
@@ -25,6 +24,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Contract Review Mini", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def unexpected_error_as_json(request, call_next):
+    # 先于 CORS 注册，CORS 位于外层：500 响应也带跨域头，前端能显示真实错误，而不是「无法连接后端」。
+    try:
+        return await call_next(request)
+    except Exception:
+        logging.getLogger(__name__).exception("未处理的服务器错误")
+        return JSONResponse(status_code=500, content={"detail": "服务器内部错误，请查看后端日志"})
+
+
 """
 加入cors中间件，告诉浏览器：允许哪个来源的网页访问这个后端
 """
@@ -33,6 +42,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        # npm run preview 的默认端口
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
     ],
     allow_methods=["POST", "GET", "PATCH"],
     allow_headers=["Content-Type"],
@@ -120,8 +132,9 @@ SOURCE_LABELS = {"rule": "规则匹配", "llm": "AI 判断，需人工复核"}
 
 def markdown_text(value: str) -> str:
     """用户输入只作为文字导出，不能变成 Markdown 链接、HTML 或新段落。"""
-    text = html.escape(value, quote=True).replace("\r", " ").replace("\n", " / ")
-    return re.sub(r"([\\`*_{}\[\]()#+.!|>~\-])", r"\\\1", text)
+    text = value.replace("\r", " ").replace("\n", " / ")
+    # 用反斜杠转义而不是 HTML 实体：渲染后显示原文，源文件里也不会出现 &#x27; 之类的乱码。
+    return re.sub(r"([\\`*_{}\[\]()#+.!|<>&~\-])", r"\\\1", text)
 
 
 def markdown_code(value: str) -> str:
@@ -150,10 +163,10 @@ def build_markdown_report(review: dict, exported_at: str) -> str:
             f"- 判断说明：{markdown_text(result['message'])}", "",
         ]
         if not result["evidence"]:
-            lines += ["无命中证据；缺失类风险表示未找到要求的内容。", ""]
+            lines += ["无命中证据。", ""]
         for evidence in result["evidence"]:
             lines += [
-                f"证据：第 {evidence['line']} 行，字符区间 [{evidence['start']}, {evidence['end']})。", "",
+                f"证据：第 {evidence['line']} 行，字符区间 [{evidence['start']}, {evidence['end']})（Unicode 码点，左闭右开）。", "",
                 "命中文本：", "", markdown_code(evidence["text"]), "",
                 "上下文片段：", "", markdown_code(evidence["snippet"]), "",
             ]

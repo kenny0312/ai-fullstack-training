@@ -32,6 +32,8 @@ class Evidence(BaseModel):
     end: int
     line: int
     snippet: str
+    # 片段在原文中的起点；旧版本保存的证据没有该字段。
+    snippet_start: int | None = None
 
 
 class RuleResult(BaseModel):
@@ -41,6 +43,7 @@ class RuleResult(BaseModel):
     original_status: Status
     final_status: Status
     evidence: list[Evidence]
+    evidence_truncated: bool = False
     message: str
     # 旧版本保存的结果没有该字段，按规则匹配处理。
     source: Literal["rule", "llm"] = "rule"

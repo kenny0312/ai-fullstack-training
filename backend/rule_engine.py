@@ -65,12 +65,15 @@ def load_rules(path: str | Path | None = None) -> list[dict]:
 
 
 def _evidence(content: str, start: int, end: int) -> dict:
+    # 所有位置都是 Python 字符串下标（Unicode 码点），区间左闭右开。
+    snippet_start = max(0, start - SNIPPET_CONTEXT)
     return {
         "text": content[start:end],
         "start": start,
         "end": end,
         "line": content.count("\n", 0, start) + 1,
-        "snippet": content[max(0, start - SNIPPET_CONTEXT):min(len(content), end + SNIPPET_CONTEXT)],
+        "snippet": content[snippet_start:min(len(content), end + SNIPPET_CONTEXT)],
+        "snippet_start": snippet_start,
     }
 
 
@@ -87,14 +90,15 @@ def analyze_contract(content: str, rules: list[dict] | None = None, judge=_JUDGE
     for rule in rules:
         # keyword 使用转义后的正则，确保其中的符号只被当作普通文字。
         pattern = re.escape(rule["pattern"]) if rule["type"] == "keyword" else rule["pattern"]
-        evidence = []
+        evidence, truncated = [], False
         for match in re.finditer(pattern, content):
             # 零宽匹配没有可展示的原文，不作为合同证据。
             if match.start() == match.end():
                 continue
-            evidence.append(_evidence(content, *match.span()))
-            if len(evidence) >= MAX_EVIDENCE:
+            if len(evidence) == MAX_EVIDENCE:
+                truncated = True
                 break
+            evidence.append(_evidence(content, *match.span()))
 
         matched = bool(evidence)
         status = _status(rule, matched)
@@ -102,8 +106,8 @@ def analyze_contract(content: str, rules: list[dict] | None = None, judge=_JUDGE
             message = "已找到规则要求的内容。" if matched else "未找到规则要求的内容，请人工复核。"
         else:
             message = "命中预设风险规则，请人工复核。" if matched else "未命中此项预设风险规则。"
-        if len(evidence) == MAX_EVIDENCE:
-            message += f" 证据最多展示前 {MAX_EVIDENCE} 处。"
+        if truncated:
+            message += f" 命中超过 {MAX_EVIDENCE} 处，只展示前 {MAX_EVIDENCE} 处。"
         results.append({
             "rule_id": rule["id"],
             "name": rule["name"],
@@ -111,6 +115,7 @@ def analyze_contract(content: str, rules: list[dict] | None = None, judge=_JUDGE
             "original_status": status,
             "final_status": status,
             "evidence": evidence,
+            "evidence_truncated": truncated,
             "message": message,
             "source": "rule",
         })

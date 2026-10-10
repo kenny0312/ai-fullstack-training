@@ -26,6 +26,23 @@ function displayTime(value) {
 function Badge({ status }) {
   return <span className={`badge badge-${status}`}>{STATUS[status] || status}</span>;
 }
+// 把片段拆成「前文 / 命中 / 后文」。后端位置是 Unicode 码点，所以用 Array.from 按码点切分。
+function splitSnippet(item) {
+  const snippet = item.snippet || item.text;
+  const chars = Array.from(snippet);
+  const length = Array.from(item.text).length;
+  let offset = item.snippet_start == null ? -1 : item.start - item.snippet_start;
+  if (offset < 0 || chars.slice(offset, offset + length).join("") !== item.text) {
+    // 兼容没有 snippet_start 的旧记录。
+    const index = snippet.indexOf(item.text);
+    offset = index < 0 ? 0 : Array.from(snippet.slice(0, index)).length;
+  }
+  return [chars.slice(0, offset).join(""), chars.slice(offset, offset + length).join(""), chars.slice(offset + length).join("")];
+}
+function EvidenceSnippet({ item }) {
+  const [before, hit, after] = splitSnippet(item);
+  return <span className="evidence-snippet">{before}<mark>{hit}</mark>{after}</span>;
+}
 function SourceSnapshot({ review, evidence, markRef }) {
   // Python offsets are code points; JS string.slice otherwise counts UTF-16 units.
   const characters = Array.from(review.content);
@@ -48,11 +65,11 @@ function ResultCard({ result, draft, busy, onDraft, onSave, onEvidence }) {
   const changed = status !== result.final_status;
   return (
     <article className={`result-card result-${result.final_status}`}>
-      <div className="result-top"><div className="rule-title"><span className="rule-id">{result.rule_id}</span><h3>{result.name}</h3></div><Badge status={result.final_status} /></div>
+      <div className="result-top"><div className="rule-title"><span className="rule-id">{result.rule_id}</span><h3>{result.name}</h3></div><div className="badge-row">{result.source === "llm" && <span className="badge badge-ai" title="关键词/正则未命中，由大模型做语义判断">AI 判断 · 需人工复核</span>}<Badge status={result.final_status} /></div></div>
       <p className="rule-description">{result.description}</p><p className="rule-message">{result.message}</p>
       <div className="evidence-block">
         <span className="field-caption">原文证据</span>
-        {result.evidence.length ? result.evidence.map((item, index) => <button type="button" className="evidence-link" key={`${item.start}-${index}`} onClick={() => onEvidence(item)}><span className="evidence-location">L{item.line} ↗</span><span>{item.snippet || item.text}</span></button>) : <p className="no-evidence">未命中匹配文本；缺失类规则的具体判断见上方说明。</p>}
+        {result.evidence.length ? result.evidence.map((item, index) => <button type="button" className="evidence-link" key={`${item.start}-${index}`} onClick={() => onEvidence(item)}><span className="evidence-location">L{item.line} ↗</span><EvidenceSnippet item={item} /></button>) : <p className="no-evidence">没有可定位的原文证据，判断依据见上方说明。</p>}
       </div>
       <div className="review-edit">
         <div className="edit-heading"><span>人工复核</span><span className="muted">规则原判：{STATUS[result.original_status]}</span></div>
@@ -82,6 +99,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [evidence, setEvidence] = useState(null);
+  const [focusTick, setFocusTick] = useState(0);
   const busyRef = useRef(false);
   const historyRequest = useRef(0);
   const markRef = useRef(null);
@@ -105,7 +123,8 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (evidence) markRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [evidence]);
+  }, [evidence, focusTick]);
+  function focusEvidence(item) { setEvidence(item); setFocusTick((tick) => tick + 1); }
 
   async function runAction(label, action) {
     if (busyRef.current) return;
@@ -120,7 +139,7 @@ export default function App() {
   function canDiscardDrafts() {
     return !unsaved || window.confirm("当前有未保存的复核草稿，继续将丢弃这些草稿。确定继续吗？");
   }
-  function useSample(risky) {
+  function loadSample(risky) {
     setContent(risky ? SAMPLE_RISK : SAMPLE_PASS); setFilename(risky ? "risk.txt" : "pass.txt"); setError("");
     setNotice("样例已载入，点击「开始审查」由后端执行规则。");
     if (fileRef.current) fileRef.current.value = "";
@@ -130,9 +149,10 @@ export default function App() {
     if (!file) return;
     await runAction("正在读取文件…", async () => {
       if (!/\.txt$/i.test(file.name)) throw new Error("当前支持 UTF-8 编码的 .txt 合同文件。");
+      if (Array.from(file.name).length > 200) throw new Error("文件名不能超过 200 个字符，请重命名后上传。");
       if (file.size > 1024 * 1024) throw new Error("文件不能超过 1 MB。");
       let text;
-      try { text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer()).replace(/^\uFEFF/, ""); }
+      try { text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer()).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n"); }
       catch { throw new Error("文件不是有效的 UTF-8 文本，请另存为 UTF-8 编码后上传。"); }
       if (!text.trim()) throw new Error("合同内容不能为空或只有空白。");
       if (Array.from(text).length > MAX_LENGTH) throw new Error("合同不能超过 100,000 个字符。");
@@ -197,7 +217,7 @@ export default function App() {
       <header className="topbar"><a href="#" className="brand"><span className="brand-mark" aria-hidden="true">C</span><span>Contract<span className="brand-light">Check</span><small>合同规则审查工作台</small></span></a><span className="local-label"><span />本地训练版 · SQLite 持久化</span></header>
       <main>
         <section className="hero"><div><p className="eyebrow">CONTRACT REVIEW WORKSPACE</p><h1>让每一次审查，都有据可循。</h1><p className="hero-description">配置驱动的规则检查，结合人工复核与可追溯的审计记录。</p></div><div className="workflow" aria-label="审查流程"><span><b>01</b>导入合同</span><i>→</i><span><b>02</b>规则审查</span><i>→</i><span><b>03</b>复核与导出</span></div></section>
-        <div className="disclaimer"><span aria-hidden="true">ⓘ</span> 本工具使用演示规则进行关键词与正则匹配，不调用大模型，不构成法律意见。未发现规则风险不代表合同不存在风险。</div>
+        <div className="disclaimer"><span aria-hidden="true">ⓘ</span> 本工具使用演示规则做关键词与正则匹配；默认不调用大模型。开启 AI 兜底后，未命中的部分规则会交给大模型做语义判断，并标注「AI 判断 · 需人工复核」。结果不构成法律意见，未发现风险不代表合同没有风险。</div>
         <div className="feedback-region" aria-live="polite" aria-atomic="true">{busy && <div className="feedback feedback-info"><span className="spinner" />{busy}</div>}{error && <div className="feedback feedback-error" role="alert">{error}</div>}{!busy && notice && <div className="feedback feedback-success">{notice}</div>}</div>
         <div className="workspace">
           <aside className="input-column">
@@ -205,7 +225,7 @@ export default function App() {
               <div className="section-heading"><div><p className="eyebrow">STEP 01</p><h2>准备合同</h2></div><span className="section-icon" aria-hidden="true">↥</span></div>
               <input className="sr-only" ref={fileRef} id="contract-file" type="file" accept=".txt,text/plain" disabled={Boolean(busy)} onChange={uploadFile} />
               <button type="button" className="upload-area" disabled={Boolean(busy)} onClick={() => fileRef.current?.click()}><span className="upload-symbol" aria-hidden="true">＋</span><strong>选择合同文件</strong><span>UTF-8 · TXT · 最大 1 MB</span></button>
-              <div className="sample-row"><span>快速体验</span><button type="button" disabled={Boolean(busy)} onClick={() => useSample(false)}>全通过样例</button><button type="button" disabled={Boolean(busy)} onClick={() => useSample(true)}>两处风险样例</button></div>
+              <div className="sample-row"><span>快速体验</span><button type="button" disabled={Boolean(busy)} onClick={() => loadSample(false)}>全通过样例</button><button type="button" disabled={Boolean(busy)} onClick={() => loadSample(true)}>两处风险样例</button></div>
               <label className="input-label" htmlFor="contract-text">待审查文本 <span title={filename}>{filename}</span></label>
               <textarea id="contract-text" value={content} onChange={(event) => setContent(event.target.value)} disabled={Boolean(busy)} placeholder="上传合同，或在这里粘贴合同全文…" rows={14} />
               <div className={`character-count ${contentLength > MAX_LENGTH ? "over-limit" : ""}`}>{contentLength.toLocaleString()} / 100,000 字符</div>
@@ -225,7 +245,7 @@ export default function App() {
                 <div className="review-meta"><strong title={review.filename}>{review.filename}</strong><span>审查编号 #{review.id} · {displayTime(review.created_at)}</span></div>
                 <div className="summary-grid"><div><span>检查规则</span><strong>{review.results.length}<small>项</small></strong></div><div className="summary-pass"><span>通过</span><strong>{counts.pass}<small>项</small></strong></div><div className="summary-risk"><span>风险</span><strong>{counts.risk}<small>项</small></strong></div><div><span>不适用</span><strong>{counts.not_applicable}<small>项</small></strong></div></div>
                 <div className="reviewer-field"><label htmlFor="reviewer-name">复核人</label><input id="reviewer-name" value={actor} disabled={Boolean(busy)} maxLength={80} placeholder="填写姓名后可保存人工修改" onChange={(event) => setActor(event.target.value)} /><small>演示身份，未做登录认证</small></div>
-                <div className="results-list">{review.results.map((result) => <ResultCard key={result.rule_id} result={result} draft={drafts[result.rule_id]} busy={Boolean(busy)} onDraft={(draft) => setDrafts((previous) => ({ ...previous, [result.rule_id]: draft }))} onSave={() => saveResult(result)} onEvidence={setEvidence} />)}</div>
+                <div className="results-list">{review.results.map((result) => <ResultCard key={result.rule_id} result={result} draft={drafts[result.rule_id]} busy={Boolean(busy)} onDraft={(draft) => setDrafts((previous) => ({ ...previous, [result.rule_id]: draft }))} onSave={() => saveResult(result)} onEvidence={focusEvidence} />)}</div>
                 <SourceSnapshot review={review} evidence={evidence} markRef={markRef} />
                 <section className="export-section"><div><h3>导出审查报告</h3><p>包含原始判断、最终状态、证据与审计记录。</p>{unsaved && <p className="draft-hint">存在未保存的复核草稿，导出不会包含这些草稿。</p>}</div><div className="button-row"><button type="button" disabled={Boolean(busy)} onClick={() => exportReport("json")}>↓ JSON</button><button type="button" className="button-primary" disabled={Boolean(busy)} onClick={() => exportReport("markdown")}>↓ Markdown</button></div></section>
               </>}

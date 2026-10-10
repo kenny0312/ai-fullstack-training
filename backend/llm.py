@@ -56,7 +56,7 @@ def mock_judge(content: str, rules: list[dict]) -> dict[str, RuleJudgement]:
     # 不联网：一律判定为「未发现」，与规则未命中时的结论一致，只用于演示 AI 标签和审计流程。
     return {
         rule["id"]: RuleJudgement(rule_id=rule["id"], found=False, quote="",
-                                  reason="模拟模式：未调用真实模型，仅演示 AI 兜底流程。")
+                                  reason="模拟模式，未调用真实模型，仅演示 AI 兜底流程。")
         for rule in rules
     }
 
