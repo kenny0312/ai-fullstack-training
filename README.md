@@ -159,6 +159,8 @@ docker-compose.yml, .env.example
 
 ## 数据与安全边界
 
+- 仓库不包含任何 API key。密钥只通过环境变量或本地 `.env` 提供；`.env` 已被 `.gitignore` 和 `.dockerignore` 排除，不会进入提交或镜像。不要把密钥写进 `rules.json`、代码或以 `VITE_` 开头的变量，后者会被打包进前端，任何人都能看到。
+- 后端容器以普通用户运行，不用 root。
 - 本地运行时数据库在 `backend/data/reviews.sqlite3`，可用 `CONTRACT_DB_PATH` 改路径；Docker 中保存在 `contract-review_contract-data` 卷。数据库保存合同全文，不要提交数据库、`.env`、`.venv` 或 `node_modules`。
 - 人工修改和审计写在同一个事务里；`expected_status` 用来发现过期提交，避免静默覆盖。
 - 复核人是自行填写的演示身份，没有登录认证。Docker 端口只绑定本机地址，不要部署到公网。
