@@ -42,6 +42,8 @@ class RuleResult(BaseModel):
     final_status: Status
     evidence: list[Evidence]
     message: str
+    # 旧版本保存的结果没有该字段，按规则匹配处理。
+    source: Literal["rule", "llm"] = "rule"
 
 
 class AuditEntry(BaseModel):

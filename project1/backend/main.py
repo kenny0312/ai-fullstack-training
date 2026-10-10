@@ -113,8 +113,9 @@ def change_result(review_id: str, rule_id: str, data: UpdateResultRequest):
         raise HTTPException(status_code=422, detail=str(error)) from None
 
 
-DISCLAIMER = "本工具仅用于编程训练。规则匹配结果不构成法律意见；未命中规则不代表合同安全或有效。人工操作人由使用者填写，未经身份认证。"
+DISCLAIMER = "本工具仅用于编程训练。规则匹配与 AI 判断结果均不构成法律意见；未命中规则不代表合同安全或有效。人工操作人由使用者填写，未经身份认证。"
 STATUS_LABELS = {"pass": "通过", "risk": "风险", "not_applicable": "不适用"}
+SOURCE_LABELS = {"rule": "规则匹配", "llm": "AI 判断，需人工复核"}
 
 
 def markdown_text(value: str) -> str:
@@ -143,6 +144,7 @@ def build_markdown_report(review: dict, exported_at: str) -> str:
         lines += [
             f"### {markdown_text(result['rule_id'])} · {markdown_text(result['name'])}", "",
             f"- 规则说明：{markdown_text(result['description'])}",
+            f"- 判断来源：{SOURCE_LABELS[result.get('source', 'rule')]}",
             f"- 原始状态：{STATUS_LABELS[result['original_status']]}",
             f"- 最终状态：{STATUS_LABELS[result['final_status']]}",
             f"- 判断说明：{markdown_text(result['message'])}", "",
