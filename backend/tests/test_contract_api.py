@@ -23,6 +23,11 @@ PASS_CONTENT = (PROJECT_ROOT / "samples" / "pass.txt").read_text(encoding="utf-8
 RISK_CONTENT = (PROJECT_ROOT / "samples" / "risk.txt").read_text(encoding="utf-8")
 
 
+def rule_count():
+    # 按 README 新增规则后测试仍应通过，所以不写死规则数量。
+    return len(importlib.import_module("rule_engine").load_rules())
+
+
 class ContractApiTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory(prefix="eventinsight-contract-tests-")
@@ -78,11 +83,12 @@ class ContractApiTests(unittest.TestCase):
         self.assertEqual(response.json()["risk_level"], "high")
         self.assertEqual(response.json()["tags"], ["事故", "投诉"])
 
-    def test_pass_sample_has_four_passing_rules(self):
+    def test_pass_sample_has_only_passing_rules(self):
         review = self.create_review()
         self.assertEqual(review["content"], PASS_CONTENT)
         self.assertEqual(review["filename"], "示例合同.txt")
-        self.assertEqual(len(review["results"]), 4)
+        self.assertGreaterEqual(len(review["results"]), 4)
+        self.assertEqual(len(review["results"]), rule_count())
         self.assertEqual({r["original_status"] for r in review["results"]}, {"pass"})
         self.assertEqual({r["final_status"] for r in review["results"]}, {"pass"})
         self.assertEqual(review["audit"], [])
@@ -223,7 +229,7 @@ class ContractApiTests(unittest.TestCase):
         items = response.json()["items"]
         self.assertEqual([item["id"] for item in items], [second["id"], first["id"]])
         self.assertEqual(items[0]["risk_count"], 1)
-        self.assertEqual(items[0]["total_count"], 4)
+        self.assertEqual(items[0]["total_count"], rule_count())
         self.assertEqual(items[1]["risk_count"], 0)
 
     def test_json_report_uses_persisted_results_and_audit(self):
@@ -261,14 +267,14 @@ class ContractApiTests(unittest.TestCase):
         rules = engine.load_rules()
         self.assertGreaterEqual(len(rules), 4)
         extra_rule = {
-            "id": "R005", "name": "新增配置规则", "description": "无需改动 Python 代码",
+            "id": "TEST_EXTRA", "name": "新增配置规则", "description": "无需改动 Python 代码",
             "type": "keyword", "pattern": "禁止转让", "risk_when": "matched",
         }
         config_path = Path(self.temp_dir.name) / "extended_rules.json"
         config_path.write_text(json.dumps([*rules, extra_rule], ensure_ascii=False), encoding="utf-8")
         extended_rules = engine.load_rules(config_path)
         results = engine.analyze_contract("争议解决：协商。未经同意禁止转让。", rules=extended_rules)
-        result = next(result for result in results if result["rule_id"] == "R005")
+        result = next(result for result in results if result["rule_id"] == "TEST_EXTRA")
         self.assertEqual(result["original_status"], "risk")
         self.assertEqual(result["evidence"][0]["text"], "禁止转让")
 
@@ -327,6 +333,50 @@ class ContractApiTests(unittest.TestCase):
         for rules in cases:
             with self.subTest(rules=rules), self.assertRaises(engine.RuleConfigError):
                 engine.analyze_contract(PASS_CONTENT, rules=rules)
+
+    def test_snippet_start_locates_hit_inside_snippet(self):
+        content = "😀" * 50 + "甲方可随时解除合同。" + "尾" * 50
+        review = self.create_review(content)
+        evidence = self.result_map(review)["R001"]["evidence"][0]
+        offset = evidence["start"] - evidence["snippet_start"]
+        self.assertEqual(content[evidence["snippet_start"]:].startswith(evidence["snippet"]), True)
+        self.assertEqual(evidence["snippet"][offset:offset + len(evidence["text"])], evidence["text"])
+
+    def test_evidence_truncation_is_reported_only_when_hits_exceed_limit(self):
+        engine = importlib.import_module("rule_engine")
+        exactly = "争议解决" + "待填写" * engine.MAX_EVIDENCE
+        more = "争议解决" + "待填写" * (engine.MAX_EVIDENCE + 1)
+        result = self.result_map(self.create_review(exactly))["R003"]
+        self.assertEqual((len(result["evidence"]), result["evidence_truncated"]), (engine.MAX_EVIDENCE, False))
+        self.assertNotIn("只展示前", result["message"])
+        result = self.result_map(self.create_review(more))["R003"]
+        self.assertEqual((len(result["evidence"]), result["evidence_truncated"]), (engine.MAX_EVIDENCE, True))
+        self.assertIn("只展示前", result["message"])
+
+    def test_markdown_report_keeps_quotes_readable(self):
+        review = self.create_review(RISK_CONTENT, filename="O'Neil & Co.txt")
+        self.assertEqual(self.update(review["id"], reason="It's fine & <ok>").status_code, 200)
+        text = self.client.post("/report", json={"review_id": review["id"], "format": "markdown"}).text
+        self.assertNotIn("&#x27;", text)
+        self.assertNotIn("&amp;", text)
+        self.assertIn("O'Neil \\& Co\\.txt", text)
+        self.assertIn("It's fine \\& \\<ok\\>", text)
+        self.assertIn("无命中证据。", text)
+
+    def test_history_order_is_stable_when_timestamps_collide(self):
+        storage = importlib.import_module("storage")
+        with patch.object(storage, "utc_now", return_value="2026-01-01T00:00:00.000000Z"):
+            created = [self.create_review(filename=f"同一时刻-{n}.txt") for n in range(5)]
+        items = self.client.get("/reviews").json()["items"]
+        self.assertEqual([item["id"] for item in items], [review["id"] for review in reversed(created)])
+
+    def test_unexpected_error_returns_json_with_cors_headers(self):
+        with patch("main.storage.list_reviews", side_effect=RuntimeError("boom")):
+            response = self.client.get("/reviews", headers={"Origin": "http://localhost:5173"})
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], "服务器内部错误，请查看后端日志")
+        self.assertEqual(response.headers.get("access-control-allow-origin"), "http://localhost:5173")
+        self.assertNotIn("boom", response.text)
 
 
 if __name__ == "__main__":

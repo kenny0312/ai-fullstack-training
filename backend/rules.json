@@ -5,7 +5,9 @@
     "description": "演示检查：发现甲方可随时解除合同的约定时提示风险。",
     "type": "keyword",
     "pattern": "甲方可随时解除合同",
-    "risk_when": "matched"
+    "risk_when": "matched",
+    "llm_fallback": true,
+    "llm_question": "合同是否赋予甲方无需对方同意、随时单方解除或终止合同的权利？"
   },
   {
     "id": "R002",
@@ -13,7 +15,9 @@
     "description": "演示检查：发现不承担任何责任的表述时提示风险。",
     "type": "keyword",
     "pattern": "不承担任何责任",
-    "risk_when": "matched"
+    "risk_when": "matched",
+    "llm_fallback": true,
+    "llm_question": "合同是否有一方完全免除自身责任的约定，例如不承担任何赔偿或责任？"
   },
   {
     "id": "R003",
@@ -29,6 +33,8 @@
     "description": "演示检查：要求原文包含争议解决字样，不判断条款实际效力。",
     "type": "keyword",
     "pattern": "争议解决",
-    "risk_when": "missing"
+    "risk_when": "missing",
+    "llm_fallback": true,
+    "llm_question": "合同是否约定了争议解决方式，例如协商、调解、仲裁或向法院起诉？"
   }
 ]

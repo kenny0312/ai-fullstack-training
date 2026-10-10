@@ -29,7 +29,8 @@ class NoStatusChange(ValueError):
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    # 固定输出微秒，保证时间字符串等宽、可以按字典序比较。
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def resolve_db_path(db_path: str | Path | None = None) -> Path:
@@ -117,7 +118,8 @@ def list_reviews(db_path=None) -> list[dict]:
     with database(db_path) as connection:
         rows = connection.execute(
             "SELECT id, filename, created_at, updated_at, results_json FROM reviews "
-            "ORDER BY created_at DESC, id DESC LIMIT 20"
+            # rowid 随插入递增；Windows 等时钟精度较低的系统上也不会因时间相同而乱序。
+            "ORDER BY rowid DESC LIMIT 20"
         ).fetchall()
     summaries = []
     for row in rows:

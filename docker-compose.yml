@@ -1,0 +1,33 @@
+# 一键启动：docker compose up --build
+# 前端 http://localhost:5173 ，后端接口文档 http://127.0.0.1:8000/docs
+# 固定项目名：卷名不随所在文件夹名称变化，审查数据不会因为改目录而“丢失”。
+name: contract-review
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      # 只绑定本机地址：本项目没有登录认证，不要暴露到局域网或公网。
+      - "127.0.0.1:8000:8000"
+    environment:
+      CONTRACT_DB_PATH: /data/reviews.sqlite3
+      # off（默认）| mock | claude。claude 模式需要在宿主机设置 ANTHROPIC_API_KEY。
+      LLM_FALLBACK: ${LLM_FALLBACK:-off}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - contract-data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://127.0.0.1:8000
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  contract-data:
