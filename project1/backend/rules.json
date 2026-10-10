@@ -1,0 +1,34 @@
+[
+  {
+    "id": "R001",
+    "name": "单方随时解除表述",
+    "description": "演示检查：发现甲方可随时解除合同的约定时提示风险。",
+    "type": "keyword",
+    "pattern": "甲方可随时解除合同",
+    "risk_when": "matched"
+  },
+  {
+    "id": "R002",
+    "name": "免责表述",
+    "description": "演示检查：发现不承担任何责任的表述时提示风险。",
+    "type": "keyword",
+    "pattern": "不承担任何责任",
+    "risk_when": "matched"
+  },
+  {
+    "id": "R003",
+    "name": "待填占位符",
+    "description": "演示检查：连续下划线或待填写意味着合同可能尚未填写完整。",
+    "type": "regex",
+    "pattern": "_{2,}|待填写",
+    "risk_when": "matched"
+  },
+  {
+    "id": "R004",
+    "name": "争议解决条款",
+    "description": "演示检查：要求原文包含争议解决字样，不判断条款实际效力。",
+    "type": "keyword",
+    "pattern": "争议解决",
+    "risk_when": "missing"
+  }
+]
